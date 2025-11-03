@@ -1,6 +1,6 @@
 import { h, mount, clear, qs, splitCsv, cryptoRandomId } from '../lib/utils.js';
 import { store, loadData } from '../lib/store.js';
-import { getSession, signOut } from '../lib/supabase.js';
+import { getSession, signOut, isAdmin } from '../lib/supabase.js';
 import { navigate } from '../lib/router.js';
 import {
   upsertMovie, deleteMovie, upsertCinema, deleteCinema,
@@ -11,7 +11,13 @@ import {
 export async function renderAdmin(params){
   const session = await getSession();
   if (!session) {
-    navigate('/login');
+    const next = encodeURIComponent('/admin');
+    navigate(`/login?next=${next}`);
+    return;
+  }
+  if (!isAdmin(session.user)) {
+    alert('Bạn không có quyền truy cập trang quản trị.');
+    navigate('/');
     return;
   }
 
@@ -46,6 +52,18 @@ export async function renderAdmin(params){
     await deleteMovie(id).catch(e => console.warn('Delete movie failed', e));
     await loadData();
     renderAdmin();
+  }, async (existing, vals)=>{
+    const m = {
+      id: existing.id,
+      title: vals.title || existing.title,
+      genres: vals.genres ? splitCsv(vals.genres) : (existing.genres || []),
+      status: vals.status || existing.status || 'now',
+      duration_min: existing.duration_min || 100,
+      poster: vals.poster ? vals.poster : (existing.poster || '')
+    };
+    await upsertMovie(m).catch(e => console.warn('Update movie failed', e));
+    await loadData();
+    renderAdmin();
   }));
 
   // Cinemas
@@ -59,6 +77,11 @@ export async function renderAdmin(params){
     renderAdmin();
   }, async (id)=>{
     await deleteCinema(id).catch(e => console.warn('Delete cinema failed', e));
+    await loadData();
+    renderAdmin();
+  }, async (existing, vals)=>{
+    const c = { id: existing.id, name: vals.name || existing.name, address: vals.address || existing.address };
+    await upsertCinema(c).catch(e => console.warn('Update cinema failed', e));
     await loadData();
     renderAdmin();
   }));
@@ -90,6 +113,20 @@ export async function renderAdmin(params){
     await deleteRoom(id).catch(e => console.warn('Delete room failed', e));
     await loadData();
     renderAdmin();
+  }, async (existing, vals)=>{
+    const r = {
+      id: existing.id,
+      cinemaId: vals.cinemaId || existing.cinemaId,
+      name: vals.name || existing.name,
+      rows: vals.rows ? Number(vals.rows) : existing.rows,
+      cols: vals.cols ? Number(vals.cols) : existing.cols,
+      vipRows: vals.vipRows ? splitCsv(vals.vipRows) : (existing.vipRows || []),
+      coupleRows: vals.coupleRows ? splitCsv(vals.coupleRows) : (existing.coupleRows || []),
+      wheelSpots: vals.wheelSpots ? splitCsv(vals.wheelSpots) : (existing.wheelSpots || [])
+    };
+    await upsertRoom(r).catch(e => console.warn('Update room failed', e));
+    await loadData();
+    renderAdmin();
   }));
 
   // Showtimes
@@ -113,6 +150,18 @@ export async function renderAdmin(params){
     renderAdmin();
   }, async (id)=>{
     await deleteShowtime(id).catch(e => console.warn('Delete showtime failed', e));
+    await loadData();
+    renderAdmin();
+  }, async (existing, vals)=>{
+    const s = {
+      id: existing.id,
+      movieId: vals.movieId || existing.movieId,
+      cinemaId: vals.cinemaId || existing.cinemaId,
+      roomId: vals.roomId || existing.roomId,
+      date: vals.date || existing.date,
+      time: vals.time || existing.time
+    };
+    await upsertShowtime(s).catch(e => console.warn('Update showtime failed', e));
     await loadData();
     renderAdmin();
   }));
@@ -167,6 +216,17 @@ export async function renderAdmin(params){
     await deleteCoupon(code).catch(e => console.warn('Delete coupon failed', e));
     await loadData();
     renderAdmin();
+  }, async (existing, vals)=>{
+    const c = {
+      code: (vals.code || existing.code).toUpperCase(),
+      type: vals.type || existing.type,
+      value: vals.value ? Number(vals.value) : existing.value,
+      minTotal: vals.minTotal ? Number(vals.minTotal) : existing.minTotal,
+      expiresAt: existing.expiresAt || null
+    };
+    await upsertCoupon(c).catch(e => console.warn('Update coupon failed', e));
+    await loadData();
+    renderAdmin();
   }));
 
   mount(document.getElementById('app'), wrap);
@@ -191,11 +251,12 @@ function field(label, name){ return { kind:'text', label, name }; }
 function selectField(label, name, options){ return { kind:'select', label, name, options }; }
 function fileField(label, name){ return { kind:'file', label, name }; }
 
-function entitySection(title, items, fields, onCreate, onDelete){
+function entitySection(title, items, fields, onCreate, onDelete, onUpdate){
   const sec = h('section', { class:'section' }, [ h('h3', {}, [title]) ]);
   const form = h('form', { class:'page' });
   const rows = h('div', { class:'row' });
   const inputs = {};
+  let editItem = null; // current item being edited
   for (const f of fields){
     const col = h('div', { class:'col-4' });
     col.append(h('label', {}, [f.label]));
@@ -264,7 +325,11 @@ function entitySection(title, items, fields, onCreate, onDelete){
           vals[k] = inp.value;
         }
       }
-      await onCreate(vals);
+      if (editItem && onUpdate) {
+        await onUpdate(editItem, vals);
+      } else {
+        await onCreate(vals);
+      }
       // Reset form
       form.reset();
       // Clear previews
@@ -274,8 +339,14 @@ function entitySection(title, items, fields, onCreate, onDelete){
           inp._dataUrl = null;
         }
       }
+      editItem = null;
+      primaryBtn.textContent = 'Thêm';
+      cancelBtn.style.display = 'none';
     } }, ['Thêm'])
   ]);
+  const primaryBtn = actions.firstChild;
+  const cancelBtn = h('button', { class:'btn', style:'display:none', onclick:(e)=>{ e.preventDefault(); form.reset(); editItem=null; primaryBtn.textContent='Thêm'; cancelBtn.style.display='none'; for (const [k,inp] of Object.entries(inputs)) { if (inp.type==='file' && inp._preview){ inp._preview.style.display='none'; inp._dataUrl=null; } } } }, ['Hủy']);
+  actions.append(cancelBtn);
   form.append(rows, actions);
 
   const table = h('table');
@@ -306,6 +377,37 @@ function entitySection(title, items, fields, onCreate, onDelete){
     // Get ID - try both camelCase and snake_case
     const idVal = it.id ?? it.code ?? it.movie_id ?? it.movieId ?? it.cinema_id ?? it.cinemaId ?? it.room_id ?? it.roomId ?? it.showtime_id ?? it.showtimeId;
     tr.append(h('td', {}, [
+      h('button', { class:'btn', style:'margin-right:8px', onclick:(e)=>{
+        e.preventDefault();
+        editItem = it;
+        // Fill inputs with existing values
+        for (const f of fields){
+          const key = f.name;
+          let v = it[key];
+          if (v === undefined) {
+            const camelName = key.replace(/_([a-z])/g, (_, l) => l.toUpperCase());
+            v = it[camelName];
+          }
+          const inp = inputs[key];
+          if (!inp) continue;
+          if (f.kind==='file') {
+            // preview existing image if available
+            if (v) {
+              if (inp._preview && inp._preview.firstChild) {
+                inp._preview.firstChild.src = v;
+                inp._preview.style.display = 'block';
+              }
+            }
+          } else if (Array.isArray(v)) {
+            inp.value = v.join(', ');
+          } else {
+            inp.value = v ?? '';
+          }
+        }
+        primaryBtn.textContent = 'Lưu';
+        cancelBtn.style.display = 'inline-block';
+        window.scrollTo({ top: sec.offsetTop, behavior: 'smooth' });
+      } }, ['Sửa']),
       h('button', { class:'btn danger', onclick: async (e)=>{
         e.preventDefault();
         if (!idVal) {

@@ -3,6 +3,7 @@ import { store } from '../lib/store.js';
 import { createHolds } from '../lib/supabase.js';
 import { navigate } from '../lib/router.js';
 import { renderSeatMap, seatTypeByRoom, seatPrice } from './seat-map.js';
+import { getSession } from '../lib/supabase.js';
 
 const HOLD_MS = 10 * 60 * 1000;
 
@@ -31,8 +32,15 @@ export function openSeatPicker(showtimeId){
 
   const seatSec = h('div', { class:'content' });
 
-  function addToCart(selectedKeys){
+  async function addToCart(selectedKeys){
     if (!selectedKeys.length) return;
+    const sess = await getSession();
+    if (!sess) {
+      alert('Vui lòng đăng nhập để giữ chỗ và đặt vé.');
+      const next = encodeURIComponent(location.hash.slice(1) || '/showtimes');
+      navigate(`/login?next=${next}`);
+      return;
+    }
     const holds = [];
     const cartItems = [];
     for (const k of selectedKeys) {

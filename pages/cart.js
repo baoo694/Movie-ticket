@@ -1,5 +1,6 @@
 import { h, mount, now, money, fmtCountdown } from '../lib/utils.js';
 import { store } from '../lib/store.js';
+import { getSession } from '../lib/supabase.js';
 import { releaseHold, createTickets } from '../lib/supabase.js';
 import { navigate } from '../lib/router.js';
 import { seatTypeByRoom, seatPrice } from '../components/seat-map.js';
@@ -8,7 +9,9 @@ import { groupBy } from '../lib/utils.js';
 
 const HOLD_MS = 10 * 60 * 1000;
 
-export function renderCart(){
+export async function renderCart(){
+  const sess = await getSession();
+  if (!sess) { const next = encodeURIComponent('/cart'); navigate(`/login?next=${next}`); return; }
   const wrap = h('div', { class:'page' });
   const cart = store.cart;
   const items = cart.items.filter(i=> !isHoldExpired(i));

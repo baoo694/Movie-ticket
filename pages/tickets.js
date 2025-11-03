@@ -1,8 +1,11 @@
 import { h, mount, money } from '../lib/utils.js';
 import { store } from '../lib/store.js';
+import { getSession } from '../lib/supabase.js';
 import { navigate } from '../lib/router.js';
 
-export function renderTickets(){
+export async function renderTickets(){
+  const sess = await getSession();
+  if (!sess) { const next = encodeURIComponent('/tickets'); navigate(`/login?next=${next}`); return; }
   const wrap = h('div', { class:'page' });
   const my = store.tickets.filter(t=> (t.owner_session||t.ownerSession)===store.sessionId);
   if (!my.length) {

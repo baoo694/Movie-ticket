@@ -11,8 +11,9 @@ export function movieCard(m, opts={}){
       h('div', { class:'meta', style:'font-size:12px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.8;' }, [m.genres?.join(' • ') || '']),
       h('div', { class:'title' }, [m.title]),
       h('div', { class:'controls', style:'display:flex;gap:8px;align-items:center;margin-top:12px;' }, [
-        h('span', { class:`tag ${m.status==='now'?'now':''}` }, [m.status==='now'?'Đang chiếu':'Sắp chiếu']),
-        opts.ctaLabel ? h('button', { class:'btn primary', style:'flex:1;', onclick: opts.onClick || (() => navigate(opts.route || `/showtimes?movieId=${m.id}`)) }, [opts.ctaLabel]) : null
+        // Only show status tag when not now
+        (m.status==='now' ? null : h('span', { class:'tag' }, ['Sắp chiếu'])),
+        h('button', { class:'btn primary', style:'flex:1;', onclick: opts.onClick || (() => navigate(opts.route || `/showtimes?movieId=${m.id}`)) }, [opts.ctaLabel || 'Lịch chiếu'])
       ])
     ])
   ]);
