@@ -24,6 +24,15 @@ export function renderShowtimes(params={}){
   store.cinemas.forEach(c=> cinemaSel.append(h('option', { value:c.id, selected: c.id===byCinemaId }, [c.name])));
   const today = new Date().toISOString().slice(0,10);
   dateSel.value = today;
+  // Ensure initial selection reflects URL params and sets mode accordingly
+  if (byMovieId) {
+    modeSel.value = 'byMovie';
+    movieSel.value = byMovieId;
+    if (byCinemaId) cinemaSel.value = byCinemaId; // keep cinema consistent if provided
+  } else if (byCinemaId) {
+    modeSel.value = 'byCinema';
+    cinemaSel.value = byCinemaId;
+  }
 
   function update(){
     clear(list);

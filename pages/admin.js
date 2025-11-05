@@ -366,6 +366,13 @@ function entitySection(title, items, fields, onCreate, onDelete, onUpdate){
         const camelName = f.name.replace(/_([a-z])/g, (_, l) => l.toUpperCase());
         v = it[camelName];
       }
+      // If this field is a select, display its label text instead of raw value
+      if (f.kind === 'select' && Array.isArray(f.options)) {
+        const match = f.options.find(o => o && o.v === v);
+        if (match && match.t !== undefined) {
+          v = match.t;
+        }
+      }
       if (f.name==='poster' && typeof v === 'string' && v) {
         tr.append(h('td', {}, [
           h('img', { src:v, alt:'poster', style:'width:56px;height:80px;object-fit:cover;border-radius:6px;border:1px solid var(--border);' })

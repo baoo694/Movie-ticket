@@ -20,6 +20,7 @@ export function renderCatalog(params){
   const applyBtn = h('button', { class:'btn', onclick: apply }, ['Lọc']);
   controls.append(statusSel, genreSel, cinemaSel, applyBtn);
   const grid = h('div', { class:'grid', id:'catalogGrid' });
+  let selectedCinemaId = '';
 
   // fill genres and cinemas
   const genres = Array.from(new Set(store.movies.flatMap(m=>m.genres || [])));
@@ -30,11 +31,16 @@ export function renderCatalog(params){
     const st = statusSel.value;
     const g = genreSel.value;
     const cId = cinemaSel.value;
+    selectedCinemaId = cId;
     let ms = store.movies.slice();
     if (st) ms = ms.filter(m=>m.status===st);
     if (g) ms = ms.filter(m=>(m.genres || []).includes(g));
     if (cId) {
-      const movieIdsAtCinema = new Set(store.showtimes.filter(s=>s.cinema_id===cId).map(s=>s.movie_id));
+      const movieIdsAtCinema = new Set(
+        store.showtimes
+          .filter(s => (s.cinema_id ?? s.cinemaId) === cId)
+          .map(s => s.movie_id ?? s.movieId)
+      );
       ms = ms.filter(m=>movieIdsAtCinema.has(m.id));
     }
     render(ms);
@@ -46,7 +52,13 @@ export function renderCatalog(params){
       grid.append(h('div', { class:'meta' }, ['Không có phim phù hợp.']));
       return;
     }
-    grid.append(...list.map(m=> movieCard(m, { ctaLabel:'Đặt vé', onClick: ()=> navigate(`/showtimes?movieId=${m.id}`) })));
+    grid.append(...list.map(m=> movieCard(m, {
+      ctaLabel:'Đặt vé',
+      onClick: ()=> {
+        const extra = selectedCinemaId ? `&cinemaId=${encodeURIComponent(selectedCinemaId)}` : '';
+        navigate(`/showtimes?movieId=${m.id}${extra}`);
+      }
+    })));
   }
 
   render(store.movies);
