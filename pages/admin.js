@@ -1,11 +1,12 @@
-import { h, mount, clear, qs, splitCsv, cryptoRandomId } from '../lib/utils.js';
+import { h, mount, clear, qs, splitCsv, cryptoRandomId, generateRandomPassword, money } from '../lib/utils.js';
 import { store, loadData } from '../lib/store.js';
-import { getSession, signOut, isAdmin } from '../lib/supabase.js';
 import { navigate } from '../lib/router.js';
 import {
+  getSession, signOut, isAdmin, sendPasswordReset, signUp,
   upsertMovie, deleteMovie, upsertCinema, deleteCinema,
   upsertRoom, deleteRoom, upsertShowtime, deleteShowtime,
-  savePricing, upsertCoupon, deleteCoupon
+  savePricing, upsertCoupon, deleteCoupon,
+  upsertAppUser
 } from '../lib/supabase.js';
 
 export async function renderAdmin(params){
@@ -229,6 +230,8 @@ export async function renderAdmin(params){
     renderAdmin();
   }));
 
+  wrap.append(userManagementSection());
+
   mount(document.getElementById('app'), wrap);
 
   function inputRow(label, name, val){
@@ -250,6 +253,418 @@ export async function renderAdmin(params){
 function field(label, name){ return { kind:'text', label, name }; }
 function selectField(label, name, options){ return { kind:'select', label, name, options }; }
 function fileField(label, name){ return { kind:'file', label, name }; }
+
+function userManagementSection(){
+  const sec = h('section', { class:'section' });
+  sec.append(h('h3', {}, ['Người dùng']));
+
+  const form = h('form', { class:'page' });
+  const grid = h('div', { class:'row' });
+
+  const inputs = {
+    email: createInput('Email', 'email', 'email'),
+    fullName: createInput('Họ tên', 'fullName'),
+    phone: createInput('Số điện thoại', 'phone'),
+    password: null, // Sẽ tạo sau với button generate
+    role: createSelect('Vai trò', 'role', [
+      { value:'user', label:'Khách hàng' },
+      { value:'admin', label:'Quản trị' }
+    ]),
+    status: createSelect('Trạng thái', 'status', [
+      { value:'active', label:'Đang hoạt động' },
+      { value:'inactive', label:'Ngưng hoạt động' }
+    ]),
+    notes: createTextarea('Ghi chú', 'notes')
+  };
+  
+  // Tạo password field với button generate
+  (() => {
+    const col = h('div', { class:'col-4' });
+    col.append(h('label', {}, ['Mật khẩu (bắt buộc)']));
+    const pwdWrap = h('div', { style:'display:flex;gap:8px;align-items:flex-end;' });
+    const pwdInput = h('input', { type:'password', id:'userPassword', required: true, placeholder:'Nhập hoặc tự động tạo' });
+    const genBtn = h('button', { 
+      type:'button', 
+      class:'btn', 
+      style:'white-space:nowrap;',
+      onclick: ()=>{
+        pwdInput.value = generateRandomPassword(12);
+        pwdInput.type = 'text';
+        setTimeout(()=>{ pwdInput.type = 'password'; }, 2000);
+      }
+    }, ['Tự tạo']);
+    pwdWrap.append(pwdInput, genBtn);
+    col.append(pwdWrap);
+    grid.append(col);
+    inputs.password = pwdInput;
+    inputs.password._col = col;
+  })();
+
+  function createInput(label, name, type='text'){
+    const col = h('div', { class:'col-4' });
+    col.append(h('label', {}, [label]));
+    const input = h('input', { type, name });
+    col.append(input);
+    grid.append(col);
+    return input;
+  }
+
+  function createSelect(label, name, options){
+    const col = h('div', { class:'col-4' });
+    col.append(h('label', {}, [label]));
+    const select = h('select', { name });
+    options.forEach(opt => select.append(h('option', { value: opt.value }, [opt.label])));
+    col.append(select);
+    grid.append(col);
+    return select;
+  }
+
+  function createTextarea(label, name){
+    const col = h('div', { class:'col-12' });
+    col.append(h('label', {}, [label]));
+    const textarea = h('textarea', { name, rows:3 });
+    col.append(textarea);
+    grid.append(col);
+    return textarea;
+  }
+
+  form.append(grid);
+
+  let editingUser = null;
+  let lastRenderedUsers = [];
+
+  function setCreateMode(isCreate){
+    const lock = !isCreate;
+    inputs.email.readOnly = lock;
+    inputs.email.classList.toggle('is-disabled', lock);
+    inputs.role.disabled = lock;
+    inputs.status.disabled = lock;
+    inputs.notes.readOnly = lock;
+    if (inputs.password && inputs.password._col) {
+      inputs.password._col.style.display = isCreate ? '' : 'none';
+      if (isCreate) inputs.password.value = '';
+    }
+    submitBtn.textContent = isCreate ? 'Thêm mới' : 'Cập nhật';
+    cancelBtn.style.display = isCreate ? 'none' : 'inline-flex';
+  }
+  const actionBar = h('div', { class:'controls' });
+  const submitBtn = h('button', { class:'btn primary', type:'submit' }, ['Thêm mới']);
+  const cancelBtn = h('button', { class:'btn', type:'button', style:'display:none;' }, ['Hủy']);
+  actionBar.append(submitBtn, cancelBtn);
+  form.append(actionBar);
+  setCreateMode(true);
+
+  cancelBtn.addEventListener('click', ()=>{
+    editingUser = null;
+    form.reset();
+    inputs.email.value = '';
+    inputs.fullName.value = '';
+    inputs.phone.value = '';
+    inputs.role.value = 'user';
+    inputs.status.value = 'active';
+    inputs.notes.value = '';
+    setCreateMode(true);
+  });
+
+  form.addEventListener('submit', async (evt)=>{
+    evt.preventDefault();
+    let email = inputs.email.value.trim();
+    if (!email) {
+      alert('Vui lòng nhập email');
+      return;
+    }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      alert('Email không hợp lệ. Vui lòng nhập đúng định dạng email.');
+      return;
+    }
+    
+    email = email.toLowerCase(); // Normalize to lowercase
+    
+    // Nếu là user mới, bắt buộc tạo Auth user
+    if (!editingUser) {
+      let password = inputs.password.value.trim();
+      // Tự động generate password nếu để trống
+      if (!password) {
+        password = generateRandomPassword(12);
+        inputs.password.value = password;
+      }
+      
+      // Validate password length
+      if (password.length < 6) {
+        alert('Mật khẩu phải có ít nhất 6 ký tự.');
+        return;
+      }
+      
+      let userId = cryptoRandomId();
+      let createdPassword = password;
+      let authUserCreated = false;
+      
+      try {
+        const data = await signUp(email, password);
+        if (data && data.user && data.user.id) {
+          userId = data.user.id; // Dùng ID từ Auth
+          authUserCreated = true;
+        }
+      } catch (e) {
+        console.warn('Create auth user failed', e);
+        const errorMsg = e.message || e.error?.message || String(e);
+        const lowerMsg = errorMsg.toLowerCase();
+        if (
+          lowerMsg.includes('already registered') ||
+          lowerMsg.includes('already exists') ||
+          lowerMsg.includes('user already registered') ||
+          lowerMsg.includes('invalid')
+        ) {
+          alert(
+            `⚠️ Không thể tạo tài khoản Auth cho email: ${email}.\n\n` +
+            `Lỗi: ${errorMsg}\n` +
+            `User sẽ cần tự đăng ký hoặc dùng "Đặt lại mật khẩu" để kích hoạt tài khoản.`
+          );
+        } else {
+          alert(`❌ Không thể tạo tài khoản Auth.\n\nEmail: ${email}\nLỗi: ${errorMsg}`);
+          return;
+        }
+      }
+      
+      const payload = {
+        id: userId,
+        email,
+        fullName: inputs.fullName.value.trim(),
+        phone: inputs.phone.value.trim(),
+        role: inputs.role.value || 'user',
+        status: inputs.status.value || 'active',
+        notes: inputs.notes.value.trim()
+      };
+      
+      try {
+        await upsertAppUser(payload);
+      } catch (e) {
+        console.warn('Upsert user failed', e);
+        alert('Không thể lưu người dùng. Vui lòng thử lại.');
+        return;
+      }
+      
+      await loadData();
+      // Hiển thị thông báo cho admin
+      if (authUserCreated) {
+        alert(`✅ Đã thêm người dùng và tạo tài khoản Auth thành công!\n\nEmail: ${email}\nMật khẩu: ${createdPassword}\n\n⚠️ Vui lòng lưu lại mật khẩu này để cung cấp cho người dùng.`);
+      } else {
+        alert(`✅ Đã thêm người dùng vào hệ thống.\n\nEmail: ${email}\n\n⚠️ Lưu ý: Email này có thể đã tồn tại trong hệ thống Auth.\n\n💡 Giải pháp:\n- Nếu user đã có tài khoản: Họ có thể đăng nhập bình thường\n- Nếu chưa có: Sử dụng nút "Đặt lại MK" để gửi email reset password cho user`);
+      }
+      renderAdmin();
+    } else {
+      // Chỉnh sửa user hiện có - chỉ cập nhật họ tên & số điện thoại
+      const payload = {
+        id: editingUser.id,
+        email: editingUser.email,
+        fullName: inputs.fullName.value.trim() || editingUser.fullName || '',
+        phone: inputs.phone.value.trim() || editingUser.phone || '',
+        role: editingUser.role,
+        status: editingUser.status,
+        notes: editingUser.notes
+      };
+      try {
+        await upsertAppUser(payload);
+        await loadData();
+        alert('Đã cập nhật thông tin họ tên và số điện thoại');
+        editingUser = null;
+        setCreateMode(true);
+        renderAdmin();
+      } catch (e) {
+        console.warn('Upsert user failed', e);
+        alert('Không thể lưu người dùng. Vui lòng thử lại.');
+      }
+    }
+  });
+
+  const searchBox = h('input', { class:'control', placeholder:'Tìm theo email, tên hoặc số điện thoại' });
+  const exportBtn = h('button', { class:'btn', type:'button', onclick: exportUsers }, ['Xuất Excel']);
+  const searchWrap = h('div', { class:'controls user-tools' }, [searchBox, exportBtn]);
+
+  const table = h('table', { class:'table' });
+  const thead = h('thead');
+  const headRow = h('tr');
+  ['EMAIL','HỌ TÊN','SỐ ĐIỆN THOẠI','VAI TRÒ','TRẠNG THÁI','GHI CHÚ','TẠO LÚC','HÀNH ĐỘNG'].forEach(txt=>{
+    headRow.append(h('th', {}, [txt]));
+  });
+  thead.append(headRow);
+  const tbody = h('tbody');
+  table.append(thead, tbody);
+
+  function fillForm(user){
+    editingUser = user;
+    inputs.email.value = user.email || '';
+    inputs.fullName.value = user.fullName || '';
+    inputs.phone.value = user.phone || '';
+    inputs.role.value = user.role || 'user';
+    inputs.status.value = user.status || 'active';
+    inputs.notes.value = user.notes || '';
+    setCreateMode(false);
+  }
+
+  async function handleReset(email){
+    if (!email) {
+      alert('Người dùng không có email hợp lệ.');
+      return;
+    }
+    try {
+      await sendPasswordReset(email);
+      alert(`Đã gửi email đặt lại mật khẩu tới ${email}`);
+    } catch (err) {
+      console.warn('Send reset failed', err);
+      alert('Không thể gửi email đặt lại mật khẩu.');
+    }
+  }
+
+  function formatDate(val){
+    if (!val) return '';
+    try {
+      const d = new Date(val);
+      if (Number.isNaN(d.getTime())) return '';
+      return d.toLocaleString('vi-VN');
+    } catch {
+      return '';
+    }
+  }
+
+  function renderRows(){
+    clear(tbody);
+    const keyword = (searchBox.value || '').trim().toLowerCase();
+    const users = (store.users || []).slice().sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+    const filtered = keyword ? users.filter(u=>{
+      const hay = `${u.email||''} ${u.fullName||''} ${u.phone||''}`.toLowerCase();
+      return hay.includes(keyword);
+    }) : users;
+    lastRenderedUsers = filtered;
+    if (!filtered.length){
+      const empty = h('tr');
+      empty.append(h('td', { colspan:8, style:'text-align:center;' }, ['Không có người dùng.']));
+      tbody.append(empty);
+      return;
+    }
+    filtered.forEach(u=>{
+      const tr = h('tr');
+      tr.append(
+        h('td', {}, [u.email || '']),
+        h('td', {}, [u.fullName || '']),
+        h('td', {}, [u.phone || '']),
+        h('td', {}, [u.role || 'user']),
+        h('td', {}, [u.status || 'active']),
+        h('td', {}, [u.notes || '']),
+        h('td', {}, [formatDate(u.createdAt)]),
+        h('td', {}, [
+          h('button', { class:'btn', style:'margin-right:8px', onclick: ()=> fillForm(u) }, ['Sửa']),
+          h('button', { class:'btn', style:'margin-right:8px', onclick: ()=> handleReset(u.email) }, ['Đặt lại MK']),
+          h('button', { class:'btn', onclick: ()=> showHistory(u) }, ['Xem vé'])
+        ])
+      );
+      tbody.append(tr);
+    });
+  }
+
+  function exportUsers(){
+    const users = lastRenderedUsers.length ? lastRenderedUsers : (store.users || []);
+    if (!users.length) {
+      alert('Không có dữ liệu người dùng để xuất.');
+      return;
+    }
+    const headers = ['Email','Họ tên','Số điện thoại','Vai trò','Trạng thái','Ghi chú','Tạo lúc'];
+    const rows = users.map(u=> [
+      u.email || '',
+      u.fullName || '',
+      u.phone || '',
+      u.role || 'user',
+      u.status || 'active',
+      u.notes || '',
+      formatDate(u.createdAt)
+    ]);
+    const csvLines = [
+      headers.join(','),
+      ...rows.map(r=> r.map(value => `"${String(value??'').replace(/"/g,'""')}"`).join(','))
+    ];
+    const blob = new Blob([csvLines.join('\n')], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `users-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  searchBox.addEventListener('input', renderRows);
+
+  function showHistory(user){
+    const email = (user.email || '').toLowerCase();
+    const root = document.getElementById('modal-root');
+    if (!root) {
+      alert('Không tìm thấy modal root.');
+      return;
+    }
+    const modal = h('div', { class:'modal' });
+    const close = ()=>{
+      root.classList.remove('active');
+      root.setAttribute('aria-hidden','true');
+      clear(root);
+    };
+    const header = h('header', {}, [
+      h('div', {}, [`Lịch sử vé - ${user.email || ''}`]),
+      h('button', { class:'btn', onclick: close }, ['Đóng'])
+    ]);
+    const content = h('div', { class:'content', style:'gap:16px;' });
+    if (!email) {
+      content.append(h('div', { class:'meta' }, ['Không tìm thấy email người dùng để tra cứu.']));
+    } else {
+      const tickets = (store.tickets || []).filter(t=> ((t.user_email || t.userEmail || '').toLowerCase() === email));
+      if (!tickets.length) {
+        content.append(h('div', { class:'meta' }, ['Chưa có vé nào được ghi nhận cho người dùng này.']));
+      } else {
+        const table = h('table', { class:'table compact' });
+        const head = h('thead');
+        head.append(h('tr', {}, [
+          h('th', {}, ['Mã vé']),
+          h('th', {}, ['Phim / Rạp / Phòng']),
+          h('th', {}, ['Suất']),
+          h('th', {}, ['Ghế']),
+          h('th', {}, ['Thanh toán'])
+        ]));
+        table.append(head);
+        const body = h('tbody');
+        for (const t of tickets){
+          const stId = t.showtime_id || t.showtimeId;
+          const st = store.showtimes.find(s=>s.id===stId);
+          const mv = store.movies.find(m=>m.id===(st?.movie_id || st?.movieId));
+          const cn = store.cinemas.find(c=>c.id===(st?.cinema_id || st?.cinemaId));
+          const rm = store.rooms.find(r=>r.id===(st?.room_id || st?.roomId));
+          body.append(h('tr', {}, [
+            h('td', {}, [t.code]),
+            h('td', {}, [`${mv?.title || ''} / ${cn?.name || ''} / ${rm?.name || ''}`]),
+            h('td', {}, [`${st?.date || ''} ${st?.time || ''}`]),
+            h('td', {}, [(t.seats || []).join(', ')]),
+            h('td', {}, [money(t.total_paid || t.totalPaid || 0)])
+          ]));
+        }
+        table.append(body);
+        content.append(table);
+      }
+    }
+    modal.append(header, content);
+    clear(root);
+    root.append(modal);
+    root.classList.add('active');
+    root.setAttribute('aria-hidden','false');
+  }
+
+  cancelBtn.click();
+  renderRows();
+
+  sec.append(form, h('hr'), searchWrap, table);
+  return sec;
+}
 
 function entitySection(title, items, fields, onCreate, onDelete, onUpdate){
   const sec = h('section', { class:'section' }, [ h('h3', {}, [title]) ]);

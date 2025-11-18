@@ -64,7 +64,19 @@ create table if not exists tickets (
   seats text[] not null,
   purchased_at timestamptz not null,
   owner_session text,
+  user_email text,
   total_paid int not null
+);
+
+create table if not exists app_users (
+  id text primary key,
+  email text unique not null,
+  full_name text,
+  phone text,
+  role text check (role in ('user','admin')) default 'user',
+  status text check (status in ('active','inactive')) default 'active',
+  notes text,
+  created_at timestamptz default now()
 );
 
 -- RLS (Row Level Security)
@@ -72,6 +84,7 @@ alter table movies enable row level security;
 alter table cinemas enable row level security;
 alter table rooms enable row level security;
 alter table showtimes enable row level security;
+alter table app_users enable row level security;
 alter table pricing enable row level security;
 alter table coupons enable row level security;
 alter table holds enable row level security;
@@ -87,6 +100,7 @@ create policy "public read pricing" on pricing for select using (true);
 create policy "public read coupons" on coupons for select using (true);
 create policy "public read tickets" on tickets for select using (true);
 create policy "public read holds" on holds for select using (true);
+create policy "public read app_users" on app_users for select using (true);
 
 -- Public write (DEMO ONLY). Consider using authenticated role or service role in production.
 create policy "public write movies" on movies for insert with check (true);
@@ -97,6 +111,9 @@ create policy "public write pricing upsert" on pricing for all using (true) with
 create policy "public write coupons" on coupons for all using (true) with check (true);
 create policy "public write holds" on holds for all using (true) with check (true);
 create policy "public write tickets" on tickets for insert with check (true);
+create policy "public write app_users insert" on app_users for insert with check (true);
+create policy "public write app_users update" on app_users for update using (true) with check (true);
+create policy "public write app_users delete" on app_users for delete using (true) with check (true);
 
 -- Optional: clean up expired holds with a scheduled function (Edge Function or cron outside Supabase)
 

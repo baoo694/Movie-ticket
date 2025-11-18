@@ -203,6 +203,14 @@ body {
 .btn.danger { background:#2a0e14; border-color:#3f1b22; color:#fecaca; }
 .btn.warn { background:#251d0b; border-color:#3a2e10; color:#fde68a; }
 
+/* Profile */
+.profile { display:flex; flex-direction:column; gap:24px; align-items:center; }
+.profile-form { width:100%; max-width:520px; display:grid; gap:16px; margin:0 auto; }
+.profile-group { display:grid; gap:6px; }
+.profile-form .controls { justify-content:flex-start; margin-top:8px; }
+.profile-form .btn.primary { padding:12px 28px; font-size:15px; border-radius:12px; }
+.profile-form input[disabled] { opacity:0.6; cursor:not-allowed; }
+.profile-group input { font-size:15px; }
 /* Auth */
 .auth-wrap { display:flex; justify-content:center; padding: 24px; }
 .auth-card { width: 100%; max-width: 520px; margin: 24px auto; background: var(--card); border:1px solid var(--border); border-radius:16px; padding:32px 28px; box-shadow: var(--shadow-lg); }

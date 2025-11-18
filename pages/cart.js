@@ -1,7 +1,6 @@
 import { h, mount, now, money, fmtCountdown } from '../lib/utils.js';
 import { store } from '../lib/store.js';
-import { getSession } from '../lib/supabase.js';
-import { releaseHold, createTickets } from '../lib/supabase.js';
+import { getSession, releaseHold, createTickets } from '../lib/supabase.js';
 import { navigate } from '../lib/router.js';
 import { seatTypeByRoom, seatPrice } from '../components/seat-map.js';
 import { cryptoRandomId } from '../lib/utils.js';
@@ -129,7 +128,9 @@ export async function renderCart(){
       if (sold[it.seatId]) { alert('Ghế đã bán: '+it.seatId); return; }
       if (!hold || hold.expiresAt<=now()) { alert('Hết thời gian giữ chỗ: '+it.seatId); return; }
     }
-    const purchased = finalizePurchase(store.cart.items, total);
+    const sessNow = await getSession().catch(()=>null);
+    const userEmail = sessNow?.user?.email || null;
+    const purchased = finalizePurchase(store.cart.items, total, userEmail);
     await createTickets(purchased).catch(e => { console.warn('Create tickets failed', e); alert('Lỗi khi tạo vé'); return; });
     store.cart = { items:[], coupon:null };
     alert('Thanh toán thành công! Vé được lưu trong "Vé của tôi".');
@@ -160,7 +161,7 @@ export async function renderCart(){
     return { ok:true, amount: Math.min(amount, subtotal) };
   }
 
-  function finalizePurchase(items, totalPaid){
+  function finalizePurchase(items, totalPaid, userEmail){
     const groups = groupBy(items, it=>it.showtimeId);
     const tickets = [];
     for (const [showtimeId, arr] of Object.entries(groups)){
@@ -173,6 +174,7 @@ export async function renderCart(){
         seats: seatIds,
         purchasedAt: now(),
         ownerSession: store.sessionId,
+        userEmail: userEmail || null,
         totalPaid: totalPaid
       };
       tickets.push(t);

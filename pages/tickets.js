@@ -7,7 +7,12 @@ export async function renderTickets(){
   const sess = await getSession();
   if (!sess) { const next = encodeURIComponent('/tickets'); navigate(`/login?next=${next}`); return; }
   const wrap = h('div', { class:'page' });
-  const my = store.tickets.filter(t=> (t.owner_session||t.ownerSession)===store.sessionId);
+  const email = (sess.user.email || '').toLowerCase();
+  const my = store.tickets.filter(t=> {
+    const sessionMatch = (t.owner_session||t.ownerSession)===store.sessionId;
+    const emailMatch = email && ((t.user_email||t.userEmail||'').toLowerCase()===email);
+    return sessionMatch || emailMatch;
+  });
   if (!my.length) {
     mount(document.getElementById('app'), h('div', { class:'section' }, [
       h('h3', {}, ['Vé của tôi']),

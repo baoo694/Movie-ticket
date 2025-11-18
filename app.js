@@ -8,6 +8,8 @@ import { renderTickets } from './pages/tickets.js';
 import { renderAdmin } from './pages/admin.js';
 import { renderLogin } from './pages/login.js';
 import { renderSignup } from './pages/signup.js';
+import { renderConfirm } from './pages/confirm.js';
+import { renderProfile } from './pages/profile.js';
 import { getSession, signOut, isAdmin } from './lib/supabase.js';
 
 // Register routes
@@ -19,6 +21,8 @@ register('/tickets', renderTickets);
 register('/admin', renderAdmin);
 register('/login', renderLogin);
 register('/signup', renderSignup);
+register('/profile', renderProfile);
+register('/confirm', renderConfirm);
 
 // Realtime disabled: no store:update handling
 
@@ -53,6 +57,11 @@ async function renderUserNav(){
       adminBtn.addEventListener('click', ()=>{ location.hash = '#/admin'; });
       container.appendChild(adminBtn);
     }
+    const profileBtn = document.createElement('button');
+    profileBtn.className = 'btn';
+    profileBtn.textContent = 'Hồ sơ';
+    profileBtn.addEventListener('click', ()=>{ location.hash = '#/profile'; });
+    container.appendChild(profileBtn);
     const btn = document.createElement('button');
     btn.className = 'btn';
     btn.textContent = 'Đăng xuất';
